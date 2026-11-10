@@ -3,7 +3,8 @@
 A Nintendo Switch HOME menu fork with a PS3 XMB-inspired interface, based on [ad3333m/homenx](https://github.com/ad3333m/homenx). Original procedural waves and existing HomeNX icons; no Sony assets are included. GPL-3.0, with upstream notices retained.
 
 - Horizontal Games, Homebrew, Nintendo, Media and custom categories.
-- Vertical software lists with smooth scrolling, a fixed selection point and large selected icons.
+- Vertical software lists with momentum-preserving, critically damped scrolling, a fixed selection point and smoothly scaling icons.
+- Animated category rail, sliding/crossfading columns and continuous focus/label transitions. Normal browsing skips the full-screen frosted backdrop pass.
 - Midnight blue/purple background, animated light ribbons and subtle particles. The existing motion settings stop animation; custom wallpapers remain supported.
 - Game launching, resume, options, achievements, system apps, quick settings and the existing HomeNX integrations use the original backend.
 
@@ -29,7 +30,7 @@ A Nintendo Switch HOME menu fork with a PS3 XMB-inspired interface, based on [ad
 
 ## Download and install
 
-**Current validation:** navigation tests and production deko3d compiler checks pass for both standalone and HOME frontend configurations. GitHub Actions could not start because the account is locked for a billing issue, so this fork does not yet provide a compiled NRO/install ZIP. See [validation notes](docs/xmb-validation.md).
+**Current validation:** the standalone XMB NRO was compiled, linked and packaged locally. Navigation tests and production deko3d compiler checks also pass. GitHub Actions remains blocked by an account billing issue; the full HOME replacement package has not been built. See [validation notes](docs/xmb-validation.md).
 
 Builds will be available from this fork's [Actions](https://github.com/Hamza-Adnan/homenx/actions) after a successful run. Releases, when built on master, appear in [Releases](https://github.com/Hamza-Adnan/homenx/releases).
 

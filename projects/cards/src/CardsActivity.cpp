@@ -1528,6 +1528,7 @@ void CardsActivity::selectById(std::uint64_t id) {
                 m_page = p;
                 m_sels[p] = static_cast<int>(i);
                 m_scroll = static_cast<float>(i);
+                m_scrollVelocity = 0.f;
                 return;
             }
 }
@@ -1581,6 +1582,7 @@ void CardsActivity::hideCard(const Game& g) {
         m_sels[p] = std::clamp(m_sels[p], 0, std::max(0, static_cast<int>(page.size()) - 1));
     }
     m_scroll = static_cast<float>(sel());
+    m_scrollVelocity = 0.f;
     saveLists(m_pages[kGames], homebrewToSave());
     m_settings.save();
     m_audio.play("toggle_off");
@@ -1625,6 +1627,16 @@ void CardsActivity::switchPage(int dir) {
     goToPage(m_settings.pageOrder[(size_t)pos], dir > 0 ? 1 : -1);
 }
 
+int CardsActivity::visiblePagePos(int page) const {
+    int visible = 0;
+    for (int candidate : m_settings.pageOrder) {
+        if (pageHidden(candidate)) continue;
+        if (candidate == page) return visible;
+        ++visible;
+    }
+    return 0;
+}
+
 void CardsActivity::goToPage(int page, int dir) {
     if (page == m_page) return;
     if (dir == 0) dir = pagePos(page) > pagePos(m_page) ? 1 : -1;
@@ -1634,11 +1646,19 @@ void CardsActivity::goToPage(int page, int dir) {
     if (page == kHomebrew && static_cast<long long>(std::time(nullptr)) - m_settings.listsAt > 120) startListRefresh();
     if (m_moving) finishMove(true);
     if (page >= kPageCount) rebuildCustomPages(); // (play times and the like, as they are now)
+    m_previousPage = m_page;
+    m_previousScroll = m_scroll;
+    m_previousPageShift = static_cast<float>(visiblePagePos(page) - visiblePagePos(m_page)) * xmb::categoryPitch;
+    // Rebase the rail without discarding its current position or velocity.
+    m_categoryOffset = m_settings.motion ? m_categoryOffset + m_previousPageShift : 0.f;
+    if (!m_settings.motion) m_categoryVelocity = 0.f;
+    m_scrollVelocity = 0.f;
     m_page = page;
     m_pageDir = dir > 0 ? 1 : -1;
     m_pageIn = m_settings.motion ? 0.f : 1.f;
     m_detailIn = m_pageIn;
     m_scroll = static_cast<float>(sel());
+    m_scrollVelocity = 0.f;
     m_zone = Zone::Cards;
     m_audio.play("tab_transition");
     m_bgPrevId = m_bgId; // the new page's art fades in over the old
@@ -1781,6 +1801,7 @@ void CardsActivity::takeLists(Lists lists) {
     }
     rebuildCustomPages();
     m_scroll = static_cast<float>(sel());
+    m_scrollVelocity = 0.f;
     if (m_backTo) selectById(m_backTo);
     saveLists(m_pages[kGames], homebrewToSave());
     wantArt();
@@ -1881,6 +1902,7 @@ void CardsActivity::moveToPage(const Game& g, int to) {
     rebuildCustomPages();
     m_sels[from] = std::clamp(m_sels[from], 0, std::max(0, static_cast<int>(m_pages[from].size()) - 1));
     m_scroll = static_cast<float>(sel());
+    m_scrollVelocity = 0.f;
     saveOrder(to); // (saves the settings too)
     saveLists(m_pages[kGames], homebrewToSave());
     m_audio.play("toggle_on");
@@ -4266,6 +4288,7 @@ void CardsActivity::finishMove(bool keep) {
         games() = std::move(m_moveBefore);
         sel() = m_moveBeforeSel;
         m_scroll = static_cast<float>(sel());
+        m_scrollVelocity = 0.f;
         m_audio.play("hide_modal");
         return;
     }
@@ -7565,14 +7588,14 @@ bool CardsActivity::handleTouch() {
         visible = 0;
         for (int page : m_settings.pageOrder) {
             if (pageHidden(page)) continue;
-            const float cx = xmb::categoryX(visible++, selectedPos);
+            const float cx = xmb::categoryX(visible++, selectedPos) + m_categoryOffset;
             if (std::abs(x - cx) < 70.f) { goToPage(page); break; }
         }
         return true;
     }
     if (y >= xmb::listTop && y < xmb::listBottom) {
         for (int i = std::max(0, sel() - 3); i < std::min(static_cast<int>(games().size()), sel() + 4); ++i) {
-            if (!xmb::itemHit(i, m_scroll).contains(x, y)) continue;
+            if (!xmb::itemHit(i, m_scroll).contains(x - m_categoryOffset, y)) continue;
             if (i == sel()) { press(1, i); play(); }
             else select(i);
             break;
@@ -7737,6 +7760,7 @@ void CardsActivity::onUpdate(float dt) {
 
     // A slow frame no longer jumps everything ahead (it looked like stutter):
     // things move a little slower for a moment instead.
+    const float motionDt = std::clamp(dt, 0.f, .1f);
     dt = std::min(dt, 1.f / 30.f);
 #ifdef SWITCHU_MENU
     std::uint64_t t = armGetSystemTick();
@@ -7832,7 +7856,7 @@ void CardsActivity::onUpdate(float dt) {
     // movement (the frame shrinks into its card while the cards rise), not a
     // rise hidden behind a still frame.
     if (!m_returnTex || m_returnT > 0.f) step(m_intro, m_introFor);
-    step(m_pageIn, 0.38f);
+    m_pageIn = motion ? std::min(1.f, m_pageIn + motionDt / .28f) : 1.f;
     step(m_detailIn, 0.25f);
     step(m_sheen, 0.8f);
     step(m_menuIn, 0.2f);
@@ -7854,9 +7878,12 @@ void CardsActivity::onUpdate(float dt) {
 #endif
     const float target = static_cast<float>(sel());
     if (!m_dragging) {
-        m_scroll = motion ? m_scroll + (target - m_scroll) * (1.f - std::exp(-dt * 13.f)) : target;
-        if (std::abs(m_scroll - target) < 0.001f) m_scroll = target;
-    }
+        if (motion) xmb::glide(m_scroll, m_scrollVelocity, target, motionDt, 26.f);
+        else { m_scroll = target; m_scrollVelocity = 0.f; }
+    } else m_scrollVelocity = 0.f;
+    if (motion) xmb::glide(m_categoryOffset, m_categoryVelocity, 0.f, motionDt);
+    else { m_categoryOffset = 0.f; m_categoryVelocity = 0.f; }
+    if (m_pageIn >= 1.f) m_previousPage = -1;
     if (m_messageFor > 0.f) m_messageFor -= dt;
 
     // Pictures that didn't come are asked for again now and then — and the
@@ -8160,6 +8187,7 @@ void CardsActivity::onUpdate(float dt) {
                 m_sels[p] = std::clamp(m_sels[p], 0, std::max(0, static_cast<int>(page.size()) - 1));
             }
             m_scroll = static_cast<float>(sel());
+            m_scrollVelocity = 0.f;
             if (m_settings.titles > 0) --m_settings.titles; // not "something new" next time
             rebuildCustomPages();
             saveOrder(m_page);
@@ -8491,8 +8519,19 @@ void CardsActivity::onUpdate(float dt) {
         }
     }
     if (m_zone == Zone::Cards && !m_moving) {
-        if (leftDown) switchPage(-1);
-        else if (rightDown) switchPage(1);
+        const bool categoryLeft = in.isHeld(B::DLeft) || in.isHeld(B::LStickL) || in.isHeld(B::RStickL);
+        const bool categoryRight = in.isHeld(B::DRight) || in.isHeld(B::LStickR) || in.isHeld(B::RStickR);
+        int direction = 0;
+        if (leftDown || rightDown) {
+            direction = leftDown ? -1 : 1;
+            m_categoryRepeat = .32f;
+        } else if (categoryLeft != categoryRight) {
+            if ((m_categoryRepeat -= motionDt) <= 0.f) {
+                direction = categoryLeft ? -1 : 1;
+                m_categoryRepeat = .19f;
+            }
+        } else m_categoryRepeat = 0.f;
+        if (direction) switchPage(direction);
     }
     if (in.isDown(B::Y)) {
         m_zone = m_zone == Zone::Top ? Zone::Cards : Zone::Top;
@@ -8554,7 +8593,15 @@ void CardsActivity::draw(nxui::Renderer& r) {
     // made the first seconds GPU-bound (the menu's own slow-GPU fallback used
     // to catch it a moment later and stay plain for the whole session). Here
     // the fancy glass only comes back once HOME is running steady.
-    m_frosted = r.gpu().offscreenReady() && !m_gpuSlow && m_time > 1.5f;
+    const bool glassVisible = m_zone == Zone::Top || m_sheetOpen || !m_menu.empty() || m_task != Task::None
+        || m_quickOpen || m_dotsOpen || m_optOpen || m_pickOpen || m_logOpen || m_musicOpen
+        || m_powerOpen || m_spQrOpen || m_notifOpen || m_introOpen || m_locked || m_moving
+        || m_messageFor > 0.f || !m_notice.title.empty() || focusRoot() != nullptr
+#ifdef SWITCHU_MENU
+        || m_newsOpen
+#endif
+        ;
+    m_frosted = glassVisible && r.gpu().offscreenReady() && !m_gpuSlow && m_time > 1.5f;
     if (m_frosted) {
         const bool moving = std::abs(m_scroll - static_cast<float>(sel())) > 0.002f || m_dragging || m_pageIn < 1.f
                          || m_bgFade < 1.f || m_intro < 1.f || m_leaving || m_moving || focusRoot() != nullptr;
@@ -8666,62 +8713,71 @@ void CardsActivity::drawXmb(nxui::Renderer& r) {
     visible = 0;
     for (int page : m_settings.pageOrder) {
         if (pageHidden(page)) continue;
-        const float x = xmb::categoryX(visible++, selectedPos);
+        const float x = xmb::categoryX(visible++, selectedPos) + m_categoryOffset;
         if (x < 35.f || x > 1245.f) continue;
-        const bool selected = page == m_page;
+        const float focus = xmb::focus((x - xmb::axisX) / xmb::categoryPitch);
         const char* glyph = page == kGames ? "pad" : page == kHomebrew ? "home"
                           : page == kMedia ? "music" : page == kNintendo ? "sys_controllers" : "playlist";
-        const float a = alpha * (selected ? 1.f : .38f);
-        if (selected) r.drawCircle({x, xmb::categoryY}, 40.f, nxui::Color(1.f, 1.f, 1.f, .035f * alpha), 40);
-        icon(r, glyph, x, xmb::categoryY, selected ? 48.f : 36.f, kWhite.withAlpha(a));
+        const float a = alpha * (.38f + .62f * focus);
+        if (focus > .001f) r.drawCircle({x, xmb::categoryY}, 40.f, nxui::Color(1.f, 1.f, 1.f, .035f * alpha * focus), 40);
+        icon(r, glyph, x, xmb::categoryY, 36.f + 12.f * focus, kWhite.withAlpha(a));
         const auto name = fit(m_fBody, pageName(page), 146.f, .85f);
         textMid(r, m_fBody, name, x - measured(m_fBody, name).x * .425f,
                 xmb::categoryY + 49.f, kWhite.withAlpha(a), .85f);
     }
 
-    r.pushClipRect({230.f, xmb::listTop, 970.f, xmb::listBottom - xmb::listTop});
+    r.pushClipRect({65.f, xmb::listTop, 1150.f, xmb::listBottom - xmb::listTop});
     const auto& page = games();
-    if (page.empty()) {
-        textMid(r, m_fLabel, "No items in this category", 387.f, xmb::itemY, white);
-        textMid(r, m_fBody, m_page == kHomebrew ? "Add .nro apps to sdmc:/switch" : "Y opens settings and library controls",
-                387.f, xmb::itemY + 38.f, kWhite.withAlpha(.5f * alpha), .85f);
-    }
-    const float pageAlpha = alpha * (.4f + .6f * easeOut(m_pageIn));
-    // Draw only the visible neighborhood, even for a library of thousands.
-    const int first = std::max(0, static_cast<int>(m_scroll) - 2);
-    const int last = std::min(static_cast<int>(page.size()), first + 7);
-    for (int i = first; i < last; ++i) {
-        nxui::Rect rect;
-        float chosen = 0.f;
-        if (!cardRect(i, rect, chosen)) continue;
-        const auto& g = page[static_cast<size_t>(i)];
-        const bool selected = i == sel();
-        const float a = pageAlpha * (.32f + .68f * chosen);
-        const auto color = kWhite.withAlpha(a);
-        if (selected) {
-            const float pulse = m_settings.motion ? .07f + .02f * std::sin(m_time * 2.f) : .08f;
-            r.drawRoundedRect(rect.expanded(10.f), nxui::Color(1.f, 1.f, 1.f, pulse * alpha), 12.f);
-            r.drawRoundedRectOutline(rect.expanded(6.f), kWhite.withAlpha(.42f * alpha), 10.f, 1.f);
+    const auto drawColumn = [&](int pageIndex, float scroll, float shift, float opacity) {
+        if (opacity < .001f || pageIndex < 0 || pageIndex >= pageCount()) return;
+        const auto& items = m_pages[pageIndex];
+        const float columnAlpha = alpha * opacity;
+        if (items.empty()) {
+            textMid(r, m_fLabel, "No items in this category", 387.f + shift, xmb::itemY, kWhite.withAlpha(columnAlpha));
+            textMid(r, m_fBody, pageIndex == kHomebrew ? "Add .nro apps to sdmc:/switch" : "Y opens settings and library controls",
+                    387.f + shift, xmb::itemY + 38.f, kWhite.withAlpha(.5f * columnAlpha), .85f);
         }
-        const auto art = m_art.find(g.id);
-        const nxui::Texture* texture = nullptr;
-        if (art != m_art.end()) {
-            if (art->second.icon && art->second.icon->valid()) texture = art->second.icon.get();
-            else if (art->second.card && art->second.card->valid()) texture = art->second.card.get();
+        // Only a few rows draw, even while two columns crossfade.
+        const int first = std::max(0, static_cast<int>(scroll) - 2);
+        const int last = std::min(static_cast<int>(items.size()), first + 7);
+        for (int i = first; i < last; ++i) {
+            auto rect = xmb::itemRect(i, scroll);
+            if (rect.bottom() <= xmb::listTop || rect.y >= xmb::listBottom) continue;
+            rect.x += shift;
+            const float chosen = xmb::focus(static_cast<float>(i) - scroll);
+            const auto& g = items[static_cast<size_t>(i)];
+            const float a = columnAlpha * (.32f + .68f * chosen);
+            const auto color = kWhite.withAlpha(a);
+            const float glow = chosen * chosen * chosen;
+            if (glow > .001f) {
+                const float pulse = m_settings.motion ? .07f + .02f * std::sin(m_time * 2.f) : .08f;
+                r.drawRoundedRect(rect.expanded(10.f), nxui::Color(1.f, 1.f, 1.f, pulse * columnAlpha * glow), 12.f);
+                r.drawRoundedRectOutline(rect.expanded(6.f), kWhite.withAlpha(.42f * columnAlpha * glow), 10.f, 1.f);
+            }
+            const auto art = m_art.find(g.id);
+            const nxui::Texture* texture = nullptr;
+            if (art != m_art.end()) {
+                if (art->second.icon && art->second.icon->valid()) texture = art->second.icon.get();
+                else if (art->second.card && art->second.card->valid()) texture = art->second.card.get();
+            }
+            if (texture) drawCover(r, texture, rect, 6.f, color);
+            else icon(r, g.action.empty() ? (g.homebrew ? "home" : "pad") : "play",
+                      rect.center().x, rect.center().y, rect.width * .8f, color);
+            const float cy = rect.center().y;
+            // Stable fitted strings stay in the font cache while their geometry scales.
+            const auto name = fit(m_fLabel, g.name, 710.f);
+            textMid(r, m_fLabel, name, 387.f + shift, cy - 8.f * chosen, color, .8f + .2f * chosen);
+            if (glow > .001f) {
+                std::string detail = isRunning(g.id) ? "Running  /  A Resume" : "A Open";
+                if (!g.author.empty()) detail += "   /   " + g.author;
+                textMid(r, m_fBody, fit(m_fBody, detail, 710.f, .8f), 387.f + shift, cy + 27.f,
+                        kWhite.withAlpha(.5f * a * glow), .8f);
+            }
         }
-        if (texture) drawCover(r, texture, rect, 6.f, color);
-        else icon(r, g.action.empty() ? (g.homebrew ? "home" : "pad") : "play",
-                  rect.center().x, rect.center().y, rect.width * .8f, color);
-        const float cy = rect.center().y;
-        const auto name = fit(m_fLabel, g.name, 720.f, selected ? 1.f : .8f);
-        textMid(r, m_fLabel, name, 387.f, cy - (selected ? 8.f : 0.f), color, selected ? 1.f : .8f);
-        if (selected) {
-            std::string detail = isRunning(g.id) ? "Running  /  A Resume" : "A Open";
-            if (!g.author.empty()) detail += "   /   " + g.author;
-            textMid(r, m_fBody, fit(m_fBody, detail, 710.f, .8f), 387.f, cy + 27.f,
-                    kWhite.withAlpha(.5f * a), .8f);
-        }
-    }
+    };
+    const float pageBlend = xmb::focus(1.f - m_pageIn);
+    drawColumn(m_previousPage, m_previousScroll, m_categoryOffset - m_previousPageShift, 1.f - pageBlend);
+    drawColumn(m_page, m_scroll, m_categoryOffset, pageBlend);
     r.popClipRect();
     r.drawLine({65.f, 656.f}, {1215.f, 656.f}, kWhite.withAlpha(.12f * alpha));
     textMid(r, m_fBody, "Left / Right  Category     Up / Down  Choose", 65.f, 688.f, kWhite.withAlpha(.55f * alpha), .75f);
@@ -8880,7 +8936,8 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
 
 bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
     card = xmb::itemRect(index, m_scroll);
-    chosen = clamp01(1.f - std::abs(static_cast<float>(index) - m_scroll));
+    card.x += m_categoryOffset;
+    chosen = xmb::focus(static_cast<float>(index) - m_scroll);
     return card.bottom() > xmb::listTop && card.y < xmb::listBottom;
 }
 
@@ -9820,6 +9877,7 @@ void CardsActivity::rebuildCustomPages() {
     }
     if (m_page >= pageCount() || pageHidden(m_page)) m_page = firstShownPage();
     m_scroll = static_cast<float>(sel());
+    m_scrollVelocity = 0.f;
 }
 
 void CardsActivity::openCustomPages() {

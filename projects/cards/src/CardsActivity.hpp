@@ -554,7 +554,13 @@ private:
     int m_page = kGames;
     std::map<std::uint64_t, Art> m_art;
     float m_scroll = 0.f;  // the row's position, easing to sel()
-    float m_repeat = 0.f;  // held left / right
+    float m_scrollVelocity = 0.f;
+    float m_categoryOffset = 0.f, m_categoryVelocity = 0.f;
+    int m_previousPage = -1;
+    float m_previousScroll = 0.f, m_previousPageShift = 0.f;
+    float m_categoryRepeat = 0.f;
+    int visiblePagePos(int page) const;
+    float m_repeat = 0.f;  // held item / toolbar axis
     Zone m_zone = Zone::Cards;
     int m_topSel = 0, m_bottomSel = 0;
 
