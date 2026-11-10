@@ -28,15 +28,25 @@ A Nintendo Switch HOME menu fork with a PS3 XMB-inspired interface, based on [ad
 | Minus | Notifications |
 | Touch | Tap categories, swipe the list vertically, tap a selected item to open; tap the status bar for system tools |
 
+## Three-way NXToggle integration
+
+NXToggle now offers **Wii U**, **CardsNX** and **XMB NX** under **Choose home screen**. Install the integrated HOME package on an Atmosphère Switch, open NXToggle, select a screen and restart. The original grid and card navigation are retained; XMB uses the smoother animated rail and vertical lists. Settings and software lists are shared between CardsNX and XMB.
+
+The standalone XMB NRO alone cannot add a HOME option to an existing upstream NXToggle. The integrated package includes both the new NXToggle and the HOME frontend that understands all three choices.
+
+Internal values are `homenx`, `cards` and `cards-xmb`. The latter preserves compatibility with the daemon’s homebrew resume policy. The legacy `xmb` alias is also accepted. Existing choices are respected; new installs default to XMB.
+
+The local integration builder is `scripts/build_integration_local.py`. It compiles the HOME frontend, NXToggle, eSpeak NG and curlpp. A matching upstream build supplies the unchanged daemon, loader and runtime data; see [validation notes](docs/xmb-validation.md).
+
 ## Download and install
 
-**Current validation:** the standalone XMB NRO was compiled, linked and packaged locally. Navigation tests and production deko3d compiler checks also pass. GitHub Actions remains blocked by an account billing issue; the full HOME replacement package has not been built. See [validation notes](docs/xmb-validation.md).
+**Current validation:** the standalone XMB NRO was compiled, linked and packaged locally. Navigation tests and production deko3d compiler checks also pass. GitHub Actions remains blocked by an account billing issue; the integrated HOME frontend and NXToggle have also been built locally, with unchanged daemon/runtime components from the matching upstream build. See [validation notes](docs/xmb-validation.md).
 
 Builds will be available from this fork's [Actions](https://github.com/Hamza-Adnan/homenx/actions) after a successful run. Releases, when built on master, appear in [Releases](https://github.com/Hamza-Adnan/homenx/releases).
 
 For a standalone trial, use **CardsNX.nro** from the HomeNX artifact and open it through hbmenu/Sphaira. Its filename is retained for compatibility; it now renders XMB.
 
-For a HOME replacement on an Atmosphère Switch, extract **HomeNX-full.zip** to the SD root and restart. New installations select XMB by default. Existing installations with an explicit Wii U preference can select **XMB NX** in NXToggle and restart. Internal paths and the `cards` preference value remain compatible with HomeNX.
+For a HOME replacement on an Atmosphère Switch, extract **HomeNX-full.zip** to the SD root and restart. New installations select XMB by default. Existing installations can open **Choose home screen** in the integrated NXToggle, select **XMB NX**, and restart. Internal paths and the `cards` preference value remain compatible with HomeNX.
 
 To restore Nintendo HOME, remove `atmosphere/contents/0100000000001000` from the SD card using a computer and restart. On-console HomeNX updates are directed to this fork to preserve the XMB changes.
 

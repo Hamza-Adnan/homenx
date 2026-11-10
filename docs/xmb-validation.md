@@ -44,3 +44,16 @@ The user confirmed that the initial standalone NRO works on their Switch. The re
 
 NRO SHA-256: `903561a70db4ad4d3280bde4d05ef1ed00a2be0ac44da5066c7c5f893d06d2fa`.
 NRO size: 12332850 bytes. Build label: `local XMB smooth-2` / `1.2.0-xmb2`.
+
+## Three-way NXToggle integration — November 10, 2026
+
+NXToggle now persists one of Wii U, CardsNX or XMB NX. The HOME process selects the classic card renderer/input or the fluid XMB renderer/input at runtime; Wii U keeps its existing entry point. A shared frontend parser is used by NXToggle, menu startup and lock-screen preferences. `cards-xmb` retains the daemon’s CardsNX resume behavior. Existing values `cards` and `homenx` remain valid.
+
+- Built and linked NXToggle.nro and the HOME frontend NSO locally. Both ELFs have no unresolved symbols.
+- Native frontend-style tests pass for all three persisted values, round trips, defaults, legacy alias and daemon-prefix compatibility. Existing motion/navigation tests pass.
+- English and French NXToggle strings include the three-way selection.
+- The integrated distribution uses the unchanged daemon, loader, optional standalone CardsNX and runtime data from upstream Actions run **42132414150**, artifact **13466175057** (`HomeNX-frontend`). Its recorded source SHA is **8756d38ac037e7bcbfb9c42a3de8dde892afacb2**, the exact upstream base of this fork. The rolling release was older and was not used for packaging.
+- The HOME menu’s `main`/`main.npdm`, both copies of NXToggle, XMB assets and shaders are replaced with this build. The supplied frontend preference is not overwritten.
+- The new three-way HOME installation/switching flow has not been tested on hardware. The user previously confirmed the standalone fluid XMB build works.
+
+Recovery remains the upstream SD-card method: remove `atmosphere/contents/0100000000001000` and restart to restore Nintendo HOME. The HOME loader may back up and replace hbmenu as documented upstream.

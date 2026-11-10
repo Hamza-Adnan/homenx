@@ -38,6 +38,8 @@ jobs:
         run: |
           g++ -std=c++20 -I projects/cards/src -I lib/nxui/include tests/xmb_navigation_test.cpp -o /tmp/xmb_test
           /tmp/xmb_test
+          g++ -std=c++20 -I projects/common/include tests/frontend_style_test.cpp -o /tmp/frontend_test
+          /tmp/frontend_test
 
       - name: Set xmake env
         run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> "$GITHUB_ENV"
@@ -133,6 +135,8 @@ jobs:
         run: |
           g++ -std=c++20 -I projects/cards/src -I lib/nxui/include tests/xmb_navigation_test.cpp -o /tmp/xmb_test
           /tmp/xmb_test
+          g++ -std=c++20 -I projects/common/include tests/frontend_style_test.cpp -o /tmp/frontend_test
+          /tmp/frontend_test
 
       - name: Set xmake env
         run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> "$GITHUB_ENV"

@@ -495,7 +495,7 @@ CardsActivity::MenuItem CardsActivity::info(std::string label, std::function<std
 
 // ---------------------------------------------------------------- set up
 
-CardsActivity::CardsActivity(std::uint64_t suspendedId, bool appRunning, bool atBoot, bool fromApplet) {
+CardsActivity::CardsActivity(std::uint64_t suspendedId, bool appRunning, bool atBoot, bool fromApplet, bool useXmb) : m_xmb(useXmb) {
 #ifdef SWITCHU_MENU
     m_startSuspended = suspendedId;
     m_startRunning = appRunning;
@@ -3332,6 +3332,16 @@ struct IntroPage {
     const char* text;
     const char* glyph;
 };
+const IntroPage kCardsIntro[] = {
+    {"Welcome to CardsNX", "Your games are cards. Left and right move between them, A plays. Either stick works too.", "play"},
+    {"Each card's options", "+ on a card: its pictures, a new name, another page for it, or delete it. X closes the software that's open.", "dots"},
+    {"Pages", "ZL and ZR go through Games, Homebrew, Media and Nintendo. + on a game shows its achievements.", "sort"},
+#ifdef SWITCHU_MENU
+    {"Quick Settings and more", "R opens Quick Settings: music, brightness, Wi-Fi, Bluetooth and power. L opens Discord. The gear at the top is Settings.", "gear"},
+#else
+    {"Quick Settings and more", "R opens Quick Settings: music, brightness, Wi-Fi and power. The gear at the top is Settings.", "gear"},
+#endif
+};
 const IntroPage kIntro[] = {
     {"Welcome to HomeNX XMB", "Left and right choose a category. Up and down choose an item. A opens it. Either stick works too.", "play"},
     {"Each card's options", "+ on a card: its pictures, a new name, another page for it, or delete it. X closes the software that's open.", "dots"},
@@ -3369,6 +3379,35 @@ void CardsActivity::updateIntro(float dt) {
 }
 
 void CardsActivity::drawIntro(nxui::Renderer& r) {
+    if (!m_xmb) {
+
+    if (!m_introOpen) return;
+    const float a = easeOut(m_introIn);
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.55f * a));
+    const nxui::Rect card = scaled(kIntroCard, 0.95f + 0.05f * easeOutBack(m_introIn));
+    frost(r, card, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.9f * a));
+    r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
+    const IntroPage& page = kCardsIntro[std::clamp(m_introPage, 0, kIntroPages - 1)];
+    const float cx = card.x + card.width * 0.5f;
+    r.drawCircle({cx, card.y + 86.f}, 42.f, accent(0.9f * a), 48);
+    icon(r, page.glyph, cx, card.y + 86.f, 40.f, kWhite.withAlpha(a));
+    textMid(r, m_fTitle, page.title, cx - measured(m_fTitle, page.title).x * 0.5f, card.y + 170.f, kWhite.withAlpha(a));
+    float y = card.y + 222.f;
+    for (const std::string& line : wrap(m_fBody, page.text, card.width - 120.f)) {
+        textMid(r, m_fBody, line, cx - measured(m_fBody, line).x * 0.5f, y, kMuted.withAlpha(a));
+        y += 32.f;
+    }
+    for (int i = 0; i < kIntroPages; ++i) { // where you are
+        const float dx = (static_cast<float>(i) - (kIntroPages - 1) * 0.5f) * 22.f;
+        r.drawCircle({cx + dx, card.y + card.height - 66.f}, i == m_introPage ? 6.f : 4.f,
+                     nxui::Color(1.f, 1.f, 1.f, (i == m_introPage ? 0.95f : 0.35f) * a), 16);
+    }
+    const std::string hint = m_introPage == kIntroPages - 1 ? "A Start" : "A Next    B Skip";
+    textMid(r, m_fBody, hint, cx - measured(m_fBody, hint).x * 0.5f, card.y + card.height - 34.f, kMuted.withAlpha(0.8f * a));
+
+        return;
+    }
+
     if (!m_introOpen) return;
     const float a = easeOut(m_introIn);
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.55f * a));
@@ -7424,6 +7463,195 @@ bool CardsActivity::updateSheet(float) {
 // ---------------------------------------------------------------- touch
 
 bool CardsActivity::handleTouch() {
+    if (!m_xmb) {
+
+    auto& in = app().input();
+    if (m_pickOpen) return pickerTouch(); // (over Settings too)
+    if (m_spQrOpen) { // a tap closes the Spotify sign-in
+        if (!in.touchUp()) return in.isTouching();
+        closeSpotifyQr();
+        return true;
+    }
+    const float x = in.touchX(), y = in.touchY();
+    auto inCircle = [&](float cx, float cy, float r) { return (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r; };
+    // Where a row was tapped: a toggle flips, a choice steps (left half back,
+    // right half on), a slider goes to the finger, an action runs.
+    auto tapRow = [&](MenuItem& item, const nxui::Rect& row, float sliderX, float sliderW) {
+        takeFacts(true); // (see updateSheet)
+        switch (item.kind) {
+            case MenuItem::Toggle:
+                if (item.change) item.change(1);
+                m_audio.play("toggle_on");
+                return false;
+            case MenuItem::Choice:
+                if (item.change) item.change(x < row.x + row.width * 0.5f ? -1 : 1);
+                m_audio.play("navigation");
+                return false;
+            case MenuItem::Slider:
+                if (item.change && item.level) {
+                    const int want = static_cast<int>(std::lround(clamp01((x - sliderX) / sliderW) * 10.f)) * 10;
+                    const int now = static_cast<int>(std::lround(item.level() * 100.f));
+                    if (want != now) item.change((want - now) / 10);
+                }
+                m_audio.play("navigation");
+                return false;
+            case MenuItem::Action:
+                return true;
+            default:
+                return false;
+        }
+    };
+
+    if (m_notifOpen) {
+        if (in.touchUp()) {
+            m_notifOpen = false;
+            m_audio.play("hide_modal");
+        }
+        return in.isTouching() || in.touchUp();
+    }
+    if (m_sheetOpen) {
+        if (!in.touchUp()) return in.isTouching();
+        if (!kSheet.contains(x, y)) {
+            m_sheetOpen = false;
+            m_audio.play("hide_modal");
+            return true;
+        }
+        if (x < kRowsX - 10.f) { // a section
+            const int s = static_cast<int>((y - kSheetTop) / secH(m_sheet.size()));
+            if (y >= kSheetTop && s >= 0 && s < static_cast<int>(m_sheet.size()) && s != m_sheetSec) {
+                m_sheetSec = s;
+                m_sheetRow = 0;
+                m_sheetScroll = 0.f;
+                m_sheetRowsIn = m_settings.motion ? 0.f : 1.f;
+                m_audio.play("tab_transition");
+            }
+            m_sheetOnRows = false;
+            return true;
+        }
+        auto& rows = m_sheet[(size_t)m_sheetSec].rows;
+        const int r = static_cast<int>((y - kSheetTop + m_sheetScroll) / kRowH);
+        if (y < kSheetTop || y > kRowsBottom || r < 0 || r >= static_cast<int>(rows.size())) return true;
+        m_sheetOnRows = true;
+        m_sheetRow = r;
+        const nxui::Rect row{kRowsX, kSheetTop + kRowH * static_cast<float>(r) - m_sheetScroll, kRowsW, kRowH - 8.f};
+        if (tapRow(rows[(size_t)r], row, row.x + row.width - 18.f - 220.f, 220.f) && rows[(size_t)r].run) {
+            m_audio.play("activation");
+            auto run = rows[(size_t)r].run;
+            run();
+        }
+        return true;
+    }
+    if (m_quickOpen) return quickTouch();
+    if (m_powerOpen) return powerTouch();
+    if (m_dotsOpen) return dotsTouch();
+    if (m_musicOpen) return musicTouch();
+    if (m_pickOpen) return pickerTouch();
+    if (m_optOpen) return optionsTouch();
+    if (!m_menu.empty()) {
+        if (!in.touchUp()) return in.isTouching();
+        nxui::Rect box;
+        float rowH = 56.f;
+        popupGeometry(m_menu.size(), box, rowH);
+        if (!box.contains(x, y)) {
+            m_menu.clear();
+            m_audio.play("hide_modal");
+            return true;
+        }
+        const int top = static_cast<int>(popupTop(m_menu.size(), m_menuSel));
+        const int shownRow = static_cast<int>((y - box.y - 66.f) / rowH), row = top + shownRow;
+        if (y < box.y + 66.f || shownRow >= static_cast<int>(kPopupRows) || row < 0 || row >= static_cast<int>(m_menu.size()))
+            return true;
+        m_menuSel = row;
+        MenuItem& item = m_menu[(size_t)row];
+        const nxui::Rect r{box.x + 14.f, box.y + 66.f + rowH * static_cast<float>(shownRow), box.width - 28.f, rowH - 6.f};
+        if (tapRow(item, r, r.x + r.width - 18.f - 150.f, 150.f) && item.run) {
+            auto run = item.run;
+            if (!item.stay) m_menu.clear();
+            run();
+        }
+        return true;
+    }
+    if (m_moving) { // a tap puts it down
+        if (in.touchUp()) finishMove(true);
+        return in.isTouching() || in.touchUp();
+    }
+
+    if (in.touchDown()) {
+        m_touchOnCards = y > 100.f && y < 490.f;
+        m_touchScroll = m_scroll;
+        m_dragging = false;
+    }
+    // Dragging the row: it follows the finger, the card under the middle is chosen.
+    if (in.isTouching() && m_touchOnCards) {
+        const float dx = x - in.touchStartX();
+        if (!m_dragging && std::abs(dx) > 14.f) m_dragging = true;
+        if (m_dragging && !games().empty()) {
+            const float last = static_cast<float>(games().size() - 1);
+            m_scroll = std::clamp(m_touchScroll - dx / kCardPitch, -0.35f, last + 0.35f);
+            const int near = std::clamp(static_cast<int>(std::lround(m_scroll)), 0, static_cast<int>(last));
+            if (near != sel()) select(near);
+        }
+        return true;
+    }
+    if (!in.touchUp()) return false;
+    if (m_dragging) { // let go: it settles on the nearest card
+        m_dragging = false;
+        return true;
+    }
+
+    // A tap.
+    if (m_touchOnCards) {
+        for (int i = 0; i < static_cast<int>(games().size()); ++i) {
+            nxui::Rect card;
+            float t = 0.f;
+            if (!cardRect(i, card, t) || !card.contains(x, y)) continue;
+            m_zone = Zone::Cards;
+            if (i == sel()) {
+                press(1, i);
+                play();
+            } else {
+                select(i);
+            }
+            return true;
+        }
+        return true;
+    }
+    if (y < 95.f) { // the top bar
+        int hit = -1;
+        if (inCircle(kMenuX, kTopY, 40.f)) hit = kTopMenu;
+        else if (inCircle(kDiscordX, kTopY, 40.f)) hit = kTopDiscord;
+        else if (inCircle(kSortX, kTopY, 40.f)) hit = kTopSort;
+        else if (m_userHit.contains(x, y)) hit = kTopUser;
+        else if (m_settings.players && m_playersHit.contains(x, y)) hit = kTopPlayers;
+        else if (inCircle(kBellX, kTopY, 32.f)) hit = kTopBell;
+        else if (inCircle(kMusicX, kTopY, 40.f)) hit = kTopMusic;
+        else if (inCircle(kPowerX, kTopY, 40.f)) hit = kTopPower;
+        else if (inCircle(kGearX, kTopY, 40.f)) hit = kTopGear;
+        if (hit >= 0) {
+            m_zone = Zone::Top;
+            m_topSel = hit;
+            activateTop(hit);
+        }
+        return true;
+    }
+    if (kPanel.contains(x, y)) { // the panel's buttons
+        const float by = kPanel.y + 108.f, cy = by + 38.5f, right = kPanel.x + kPanel.width - 22.f;
+        int hit = -1;
+        if (nxui::Rect{kPanel.x + 22.f, by, 262.f, 77.f}.contains(x, y)) hit = 0;
+        else if (inCircle(kPanel.x + 22.f + 262.f + 8.f + 38.5f, cy, 40.f)) hit = 1;
+        else if (inCircle(right - 77.f - 8.f - 38.5f, cy, 40.f)) hit = 2;
+        else if (inCircle(right - 38.5f, cy, 40.f)) hit = 3;
+        if (hit >= 0) {
+            m_zone = Zone::Bottom;
+            m_bottomSel = hit;
+            activateBottom(hit);
+        }
+        return true;
+    }
+    return true;
+
+    }
+
     auto& in = app().input();
     if (m_pickOpen) return pickerTouch(); // (over Settings too)
     if (m_spQrOpen) { // a tap closes the Spotify sign-in
@@ -7856,7 +8084,8 @@ void CardsActivity::onUpdate(float dt) {
     // movement (the frame shrinks into its card while the cards rise), not a
     // rise hidden behind a still frame.
     if (!m_returnTex || m_returnT > 0.f) step(m_intro, m_introFor);
-    m_pageIn = motion ? std::min(1.f, m_pageIn + motionDt / .28f) : 1.f;
+    if (m_xmb) m_pageIn = motion ? std::min(1.f, m_pageIn + motionDt / .28f) : 1.f;
+    else step(m_pageIn, .38f);
     step(m_detailIn, 0.25f);
     step(m_sheen, 0.8f);
     step(m_menuIn, 0.2f);
@@ -7878,7 +8107,8 @@ void CardsActivity::onUpdate(float dt) {
 #endif
     const float target = static_cast<float>(sel());
     if (!m_dragging) {
-        if (motion) xmb::glide(m_scroll, m_scrollVelocity, target, motionDt, 26.f);
+        if (!m_xmb) m_scroll = motion ? m_scroll + (target - m_scroll) * (1.f - std::exp(-dt * 13.f)) : target;
+        else if (motion) xmb::glide(m_scroll, m_scrollVelocity, target, motionDt, 26.f);
         else { m_scroll = target; m_scrollVelocity = 0.f; }
     } else m_scrollVelocity = 0.f;
     if (motion) xmb::glide(m_categoryOffset, m_categoryVelocity, 0.f, motionDt);
@@ -8463,6 +8693,91 @@ void CardsActivity::onUpdate(float dt) {
         return;
     }
 
+    if (!m_xmb) {
+    // Left / right: repeating while held.
+    const bool left = in.isHeld(B::DLeft) || in.isHeld(B::LStickL) || in.isHeld(B::RStickL);
+    const bool right = in.isHeld(B::DRight) || in.isHeld(B::LStickR) || in.isHeld(B::RStickR);
+    int move = 0;
+    if (leftDown) {
+        move = -1;
+        m_repeat = 0.32f;
+    } else if (rightDown) {
+        move = 1;
+        m_repeat = 0.32f;
+    } else if (left || right) {
+        if ((m_repeat -= dt) <= 0.f) {
+            move = left ? -1 : 1;
+            m_repeat = m_moving ? 0.14f : 0.075f;
+        }
+    }
+
+    // Plus > Move: left / right carry the card; A or Plus put it down, B puts it back.
+    if (m_moving) {
+        auto& page = games();
+        const int s = sel(), to = s + move;
+        if (move && to >= 0 && to < static_cast<int>(page.size())) {
+            std::swap(page[(size_t)s], page[(size_t)to]);
+            sel() = to;
+            m_audio.play("navigation");
+            wantArt();
+        }
+        if (aDown || in.isDown(B::Plus)) finishMove(true);
+        else if (bDown) finishMove(false);
+        return;
+    }
+
+    if (move) {
+        if (m_zone == Zone::Cards) {
+            select(sel() + move);
+        } else if (m_zone == Zone::Top) {
+            int next = m_topSel;
+            do next += move;
+            while (next == kTopPlayers && !m_settings.players);
+            next = std::clamp(next, 0, kTopCount - 1);
+            if (next == kTopPlayers && !m_settings.players) next = m_topSel;
+            if (next != m_topSel) m_audio.play("navigation");
+            m_topSel = next;
+        } else {
+#ifdef SWITCHU_MENU
+            const int last = m_settings.panelApp.empty() ? 2 : 3; // Settings > Home > Panel button: Nothing
+#else
+            const int last = 3;
+#endif
+            const int next = std::clamp(m_bottomSel + move, 0, last);
+            if (next != m_bottomSel) m_audio.play("navigation");
+            m_bottomSel = next;
+        }
+    }
+    if (upDown && m_zone != Zone::Top) {
+        m_zone = m_zone == Zone::Bottom ? Zone::Cards : Zone::Top;
+        m_audio.play("navigation");
+    }
+    if (downDown && m_zone != Zone::Bottom) {
+        m_zone = m_zone == Zone::Top ? Zone::Cards : Zone::Bottom;
+        m_audio.play("navigation");
+    }
+    if (aDown) {
+        if (m_zone == Zone::Cards) {
+            press(1, sel());
+            play();
+        } else if (m_zone == Zone::Top) {
+            activateTop(m_topSel);
+        } else {
+            activateBottom(m_bottomSel);
+        }
+    }
+    if (bDown && m_zone != Zone::Cards) m_zone = Zone::Cards;
+    if (in.isDown(B::Plus)) openOptions();
+    if (in.isDown(B::X)) askClose();
+    if (in.isDown(B::Minus)) openNotifications();
+    if (in.isDown(B::L)) openDiscord();
+    if (in.isDown(B::R)) openQuick();
+    if (in.isDown(B::ZL)) switchPage(-1);
+    if (in.isDown(B::ZR)) switchPage(1);
+
+        return;
+    }
+
     // Repeat along the vertical item axis, or horizontal system toolbar axis.
     const bool vertical = m_zone == Zone::Cards;
     const bool left = vertical ? (in.isHeld(B::DUp) || in.isHeld(B::LStickU) || in.isHeld(B::RStickU)) : in.isHeld(B::DLeft) || in.isHeld(B::LStickL) || in.isHeld(B::RStickL);
@@ -8581,7 +8896,8 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawStep("draw: the background");
     drawBackground(r);
     drawStep("draw: the cards");
-    drawXmb(r);
+    if (m_xmb) drawXmb(r);
+    else drawCards(r);
     drawStep("draw: the glass");
     // One blurred copy of the frame for every glass shape on top of it, made
     // again when what's behind changed: at once while things move, every 6th
@@ -8593,7 +8909,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     // made the first seconds GPU-bound (the menu's own slow-GPU fallback used
     // to catch it a moment later and stay plain for the whole session). Here
     // the fancy glass only comes back once HOME is running steady.
-    const bool glassVisible = m_zone == Zone::Top || m_sheetOpen || !m_menu.empty() || m_task != Task::None
+    const bool glassVisible = !m_xmb || m_zone == Zone::Top || m_sheetOpen || !m_menu.empty() || m_task != Task::None
         || m_quickOpen || m_dotsOpen || m_optOpen || m_pickOpen || m_logOpen || m_musicOpen
         || m_powerOpen || m_spQrOpen || m_notifOpen || m_introOpen || m_locked || m_moving
         || m_messageFor > 0.f || !m_notice.title.empty() || focusRoot() != nullptr
@@ -8614,17 +8930,17 @@ void CardsActivity::draw(nxui::Renderer& r) {
         m_blurAge = 1000; // made at once when it's back
     }
     drawStep("draw: the cards' extras");
-    // XMB items are rendered before the shared modal backdrop capture.
+    if (!m_xmb) drawCardExtras(r);
     drawStep("draw: the bar and the panel");
     // Launching: the bar and the panel go first.
     const int leaveStyle = launchStyle();
     const float ui = m_leaving && leaveStyle != kNoAnimation && leaveStyle != kFade ? 1.f - easeOut(m_leaveT / 0.3f) : 1.f;
-    if (m_zone == Zone::Top) drawTopBar(r, easeOut(m_intro * 2.2f) * ui);
+    if (!m_xmb || m_zone == Zone::Top) drawTopBar(r, easeOut(m_intro * 2.2f) * ui);
     drawStep("draw: the panel");
-    // The selected item and controller legend live in the XMB column.
+    if (!m_xmb) drawPanel(r, easeOut((m_intro - 0.25f) * 2.f) * ui);
     drawStep("draw: the messages");
     if (m_moving) { // what Move does
-        const std::string hint = "Move it with Up / Down      A  Done      B  Put it back";
+        const std::string hint = m_xmb ? "Move it with Up / Down      A  Done      B  Put it back" : "Move it with  < >      A  Done      B  Put it back";
         const float w = measured(m_fBody, hint).x + 44.f;
         const nxui::Rect pill{640.f - w * 0.5f, 452.f, w, 40.f};
         frost(r, pill, 20.f, nxui::Color(0.06f, 0.07f, 0.10f, 0.7f));
@@ -8791,6 +9107,42 @@ void CardsActivity::drawXmb(nxui::Renderer& r) {
 }
 
 void CardsActivity::drawBackground(nxui::Renderer& r) {
+    if (!m_xmb) {
+
+    r.drawGradientRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.36f, 0.41f, 0.55f, 1.f),
+                       nxui::Color(0.22f, 0.25f, 0.34f, 1.f));
+    auto bgOf = [this](std::uint64_t id) -> const nxui::Texture* {
+        auto it = m_art.find(id);
+        return it != m_art.end() && it->second.bg && it->second.bg->valid() ? it->second.bg.get() : nullptr;
+    };
+    const nxui::Rect screen{0.f, 0.f, 1280.f, 720.f};
+    // A slow drift (zoom and pan), so the art feels alive; launching, it leans in.
+    const bool motion = m_settings.motion && m_settings.bgMotion && !m_gpuSlow; // (a slow GPU: it stays still)
+    const int style = launchStyle();
+    const float lean = !m_leaving ? 0.f
+                     : style == kDive ? 0.45f * easeIn(m_leaveT)
+                     : style == kZoom || style == kFlip ? 0.10f * easeInOut(m_leaveT) : 0.f;
+    const float zoom = (motion ? 1.06f + 0.03f * std::sin(m_time * 0.11f) : 1.04f) + lean;
+    const float panX = motion ? 0.25f * std::sin(m_time * 0.07f) : 0.f;
+    const float panY = motion ? 0.2f * std::cos(m_time * 0.05f) : 0.f;
+    if (m_wallTex && m_wallTex->valid()) { // Settings > Look > Background: one picture for everything
+        drawCover(r, m_wallTex.get(), screen, 0.f, kWhite, 0.f, 0.f, zoom, panX, panY);
+    } else {
+        if (m_bgFade < 1.f)
+            if (const nxui::Texture* prev = bgOf(m_bgPrevId)) drawCover(r, prev, screen, 0.f, kWhite, 0.f, 0.f, zoom, panX, panY);
+        if (const nxui::Texture* cur = bgOf(m_bgId))
+            drawCover(r, cur, screen, 0.f, kWhite.withAlpha(easeOut(m_bgFade)), 0.f, 0.f, zoom, panX, panY);
+    }
+    // The haze over it (Settings > Background softness), and a little depth at the edges.
+    const float haze = static_cast<float>(m_settings.haze) / 100.f
+                     * (1.f - (m_leaving && (style == kZoom || style == kFlip) ? easeOut(m_leaveT * 2.f) : 0.f));
+    r.drawRect(screen, nxui::Color(0.38f, 0.43f, 0.56f, haze));
+    r.drawGradientRect({0.f, 0.f, 1280.f, 140.f}, nxui::Color(0.05f, 0.06f, 0.10f, 0.35f), nxui::Color(0.05f, 0.06f, 0.10f, 0.f));
+    r.drawGradientRect({0.f, 560.f, 1280.f, 160.f}, nxui::Color(0.05f, 0.06f, 0.10f, 0.f), nxui::Color(0.05f, 0.06f, 0.10f, 0.40f));
+
+        return;
+    }
+
     r.drawGradientRect({0.f, 0.f, 1280.f, 720.f},
                        nxui::Color(.055f, .085f, .17f), nxui::Color(.18f, .10f, .28f));
     if (m_wallTex && m_wallTex->valid()) {
@@ -8935,6 +9287,45 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
 }
 
 bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
+    if (!m_xmb) {
+
+    const float rel = static_cast<float>(index) - m_scroll;
+    // A page switch slides the row in from the side.
+    float slide = (1.f - easeOut(m_pageIn)) * 160.f * static_cast<float>(m_pageDir);
+    // Launching: the others make way.
+    if (m_leaving && m_leaveIndex >= 0 && index != m_leaveIndex && launchStyle() == kZoom)
+        slide += (index < m_leaveIndex ? -1.f : 1.f) * 420.f * easeIn(m_leaveT / 0.5f);
+    const float x0 = kCardFirstX + rel * kCardPitch + slide;
+    if (x0 > 1290.f || x0 + kCardPitch < -10.f) return false;
+    chosen = clamp01(1.f - std::abs(rel));
+    const float grow = easeOutBack(chosen);
+    float w = kCardW + kCardGrowW * grow, h = kCardH + kCardGrowH * grow;
+    // Opening: the cards rise in one after another.
+    const float k = std::max(0.f, rel + 1.f);
+    const float rise = 1.f - easeOut((m_intro - 0.1f - 0.07f * k) / 0.5f);
+    float lift = 7.f * chosen;
+    if (m_moving && index == sel()) { // picked up
+        w *= 1.05f;
+        h *= 1.05f;
+        lift += 22.f + 3.f * std::sin(m_time * 6.f);
+    }
+    card = {x0 + kCardW * 0.5f - w * 0.5f, kCardMidY - h * 0.5f - lift + 60.f * rise, w, h};
+    if (m_leaving) {
+        const int style = launchStyle();
+        if (style == kFade && index == m_leaveIndex) { // a smooth hop: up, a little bigger, and back down
+            const float hop = 0.5f - 0.5f * std::cos(6.28318f * clamp01(m_leaveT / 0.6f));
+            card = scaled(card, 1.f + 0.05f * hop);
+            card.y -= 34.f * hop;
+        }
+        if (style == kDive) { // the whole row rushes at you
+            const float k = 1.f + 2.4f * easeIn(m_leaveT / 0.8f);
+            card = {640.f + (card.x - 640.f) * k, 330.f + (card.y - 330.f) * k, card.width * k, card.height * k};
+        }
+    }
+    return true;
+
+    }
+
     card = xmb::itemRect(index, m_scroll);
     card.x += m_categoryOffset;
     chosen = xmb::focus(static_cast<float>(index) - m_scroll);

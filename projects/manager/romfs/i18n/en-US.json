@@ -61,6 +61,11 @@
     "update_stage_downloading": "Downloading update...",
     "update_stage_verifying": "Verifying download...",
     "update_stage_extracting": "Preparing installation...",
-    "update_stage_installing": "Installing files..."
+    "update_stage_installing": "Installing files...",
+    "choose_home": "Choose home screen",
+    "choose_home_message": "Choose Wii U, CardsNX or XMB. Restart the console to apply the choice.",
+    "next_boot_style_suffix": " will be your HOME after the restart.",
+    "style_available": "Available",
+    "subtitle2": "Turn HOME on or off, choose Wii U, CardsNX or XMB, and keep them up to date."
   }
 }

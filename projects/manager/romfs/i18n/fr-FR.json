@@ -61,6 +61,11 @@
     "update_stage_downloading": "Téléchargement de la mise à jour…",
     "update_stage_verifying": "Vérification du téléchargement…",
     "update_stage_extracting": "Préparation de l'installation…",
-    "update_stage_installing": "Installation des fichiers…"
+    "update_stage_installing": "Installation des fichiers…",
+    "choose_home": "Choisir l’écran HOME",
+    "choose_home_message": "Choisissez Wii U, CardsNX ou XMB. Redémarrez la console pour appliquer ce choix.",
+    "next_boot_style_suffix": " sera votre écran HOME après le redémarrage.",
+    "style_available": "Disponible",
+    "subtitle2": "Activez HOME, choisissez Wii U, CardsNX ou XMB et installez les mises à jour."
   }
 }

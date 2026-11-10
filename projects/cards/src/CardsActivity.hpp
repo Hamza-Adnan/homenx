@@ -53,7 +53,7 @@ public:
     // As HOME: what the daemon said at start (a game suspended, one running,
     // the console just booted).
     explicit CardsActivity(std::uint64_t suspendedId = 0, bool appRunning = false, bool atBoot = true,
-                           bool fromApplet = false);
+                           bool fromApplet = false, bool useXmb = true);
     void setWakeStart(bool wake) { m_wakeStart = wake; }
     bool onCreate() override;
 #ifdef SWITCHU_MENU
@@ -66,6 +66,7 @@ public:
     nxui::Widget* focusRoot() override; // HomeNX's screens when one is open; else it reads the buttons itself
 
 private:
+    bool m_xmb = true;
     enum class Zone { Top, Cards, Bottom };
     enum Page { kGames, kHomebrew, kNintendo, kMedia, kPageCount };
     int pageCount() const { return kPageCount + static_cast<int>(m_settings.customPages.size()); }

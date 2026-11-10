@@ -8,6 +8,7 @@
 #include <fmt/format.h>
 #ifdef SWITCHU_MENU
 #include "CardsActivity.hpp"
+#include <switchu/frontend_style.hpp>
 #include <nxui/core/Renderer.hpp>
 #include <switchu/smi_protocol.hpp>
 #include <switchu/file_log.hpp>
@@ -350,7 +351,8 @@ int main(int argc, char* argv[]) {
         std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), homeStyle);
         // CardsNX stopped 3 times in a row just after starting: HomeNX's HOME until the console
         // restarts, not a black screen that flickers for ever. (Cleared once it has run a moment.)
-        bool useCards = homeStyle.empty() || homeStyle.rfind("cards", 0) == 0;
+        const auto frontend = switchu::parseFrontendStyle(homeStyle);
+        bool useCards = frontend != switchu::FrontendStyle::WiiU;
         if (useCards) {
             int starts = 0;
             std::ifstream(cards::kCardsStarting) >> starts;
@@ -362,7 +364,7 @@ int main(int argc, char* argv[]) {
         if (useCards) {
             auto activity = std::make_unique<cards::CardsActivity>(sysStatus.suspended_app_id, sysStatus.app_running,
                 startMode == switchu::smi::MenuStartMode::StartupBoot,
-                startMode == switchu::smi::MenuStartMode::AppletReturn);
+                startMode == switchu::smi::MenuStartMode::AppletReturn, frontend == switchu::FrontendStyle::Xmb);
             activity->setWakeStart(startMode == switchu::smi::MenuStartMode::WakeUp);
             app.setActivity(std::move(activity));
         }

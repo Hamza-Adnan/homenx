@@ -1,5 +1,6 @@
 #pragma once
 #include <nlohmann/json.hpp>
+#include <switchu/frontend_style.hpp>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -8,7 +9,7 @@ namespace switchu::lock_screen {
 inline bool enabled() {
     std::string frontend;
     std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), frontend);
-    if (frontend.empty() || frontend.rfind("cards", 0) == 0) {
+    if (switchu::parseFrontendStyle(frontend) != switchu::FrontendStyle::WiiU) {
         std::ifstream in("sdmc:/config/CardsNX/settings.json");
         const auto settings = nlohmann::json::parse(in, nullptr, false);
         if (!settings.is_object()) return false;
